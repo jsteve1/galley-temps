@@ -7,27 +7,28 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0d1117;color:#c9d1d9;font-family:'Segoe UI',system-ui,sans-serif;padding:20px}
-h1{text-align:center;margin-bottom:4px;color:#58a6ff;font-size:1.8rem}
-.sub{text-align:center;color:#8b949e;margin-bottom:24px;font-size:.85rem}
-.ctrl{display:flex;justify-content:center;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+body{background:#0d1117;color:#c9d1d9;font-family:'Segoe UI',system-ui,sans-serif;padding:12px;max-width:100%;overflow-x:hidden}
+h1{text-align:center;margin-bottom:4px;color:#58a6ff;font-size:1.5rem}
+.sub{text-align:center;color:#8b949e;margin-bottom:20px;font-size:.8rem}
+.ctrl{display:flex;justify-content:center;gap:8px;margin-bottom:16px;flex-wrap:wrap}
 .ctrl button{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.85rem;transition:.15s}
 .ctrl button:hover,.ctrl button.active{background:#388bfd;border-color:#388bfd;color:#fff}
-.stats{display:flex;justify-content:center;gap:14px;margin-bottom:24px;flex-wrap:wrap}
-.s{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 16px;text-align:center;min-width:95px}
-.s .l{font-size:.7rem;color:#8b949e;text-transform:uppercase;letter-spacing:.5px}
-.s .v{font-size:1.5rem;font-weight:700;margin:4px 0 2px}
-.s .u{font-size:.7rem;color:#8b949e}
-.ch{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:16px}
-.ch h3{color:#58a6ff;font-size:.95rem;margin-bottom:12px}
-.cg{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px}
-canvas{max-height:280px}
+.stats{display:flex;justify-content:center;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.s{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px 12px;text-align:center;flex:1 1 auto;min-width:70px;max-width:120px}
+.s .l{font-size:.65rem;color:#8b949e;text-transform:uppercase;letter-spacing:.5px}
+.s .v{font-size:1.2rem;font-weight:700;margin:2px 0}
+.s .u{font-size:.65rem;color:#8b949e}
+.ch{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px;overflow:hidden;position:relative;width:100%}
+.ch h3{color:#58a6ff;font-size:.85rem;margin-bottom:8px}
+.cg{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:768px){.cg{grid-template-columns:repeat(2,1fr)}}
+canvas{max-height:220px}
 .foot{text-align:center;color:#484f58;font-size:.75rem;margin-top:20px}
 </style>
 </head>
 <body>
 <h1>Galley Temps</h1>
-<p class="sub">System telemetry — server logs collected every 30s</p>
+<p class="sub">System telemetry — fetching live from server</p>
 
 <div class="ctrl" id="ctrlBtns">
     <button class="active" data-r="1h">1h</button>
@@ -52,13 +53,14 @@ canvas{max-height:280px}
     <div class="ch"><h3>Memory &amp; Disk</h3><canvas id="memDisc"></canvas></div>
 </div>
 
-<p class="foot">Data from <span id="lastPt">loading</span> • auto-refreshes on load •
-<a href="data/temps.csv" style="color:#58a6ff">raw CSV</a>
+<p class="foot">Data from <span id="lastPt">loading</span> • auto-refreshes every 60s •
+<a href="/api/metrics" style="color:#58a6ff">raw CSV</a>
 </p>
 
 <script>
 /* ── Config ── */
-const CSV_SRC = 'data/temps.csv';
+const IS_GH_PAGES = window.location.hostname.includes('github.io');
+const CSV_SRC = IS_GH_PAGES ? 'https://galley-temps.gaspartech.com/api/metrics' : '/api/metrics';
 const OPTS = {
     responsive: true, maintainAspectRatio: true,
     animation: { duration: 400 },
@@ -74,14 +76,11 @@ let raw = [];
 let charts = {};
 let range = '1h';
 
-/* ── Parse fixed-column CSV ──
-   Header: timestamp,cpu_usage,cpu_temp,mem_pct,disk_pct,uptime_h,gpu0_util,gpu0_temp,gpu1_util,gpu1_temp
-   Indices:        0        1         2       3      4       5       6         7          8         9
-*/
+/* ── Parse CSV ── */
 function parseCSV(text) {
     const rows = [];
     const lines = text.trim().split('\n');
-    for (let i = 1; i < lines.length; i++) { // skip header
+    for (let i = 1; i < lines.length; i++) {
         const p = lines[i].split(',');
         if (p.length < 10) continue;
         rows.push({
@@ -96,7 +95,7 @@ function parseCSV(text) {
 
 function filter(d, r) {
     const now = new Date();
-    const cut = { '1h': 3600,'6h': 21600,'24h': 86400,'all': Infinity }.r || 3600;
+    const cut = {'1h': 3600,'6h': 21600,'24h': 86400,'all': Infinity}[r] || 3600;
     return d.filter(row => (now - row.t) / 1000 < cut);
 }
 
@@ -141,7 +140,6 @@ function render(d) {
         ]}, options:{...OPTS, scales:{...OPTS.scales, y:{...OPTS.scales.y, max:100}}},
     });
 
-    /* ── Live stats (last row) ── */
     if (d.length) {
         const last = d[d.length-1];
         document.getElementById('sCPU').textContent = last.cpuT.toFixed(1);
@@ -164,18 +162,17 @@ async function load() {
 }
 
 /* ── Buttons ── */
-document.getElementById('ctrlBtns').onchange = (e) => {
-    range = e.target.dataset.r;
-    render(filter(raw, range));
-};
 document.getElementById('ctrlBtns').onclick = (e) => {
     if (e.target.tagName !== 'BUTTON') return;
     document.querySelectorAll('#ctrlBtns button').forEach(b=>b.classList.remove('active'));
     e.target.classList.add('active');
+    range = e.target.dataset.r;
+    render(filter(raw, range));
 };
 
 /* ── Boot ── */
 load();
+setInterval(load, 60000);
 </script>
 </body>
 </html>
