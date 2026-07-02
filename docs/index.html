@@ -54,7 +54,7 @@ canvas{max-height:220px}
 </div>
 
 <p class="foot">Data from <span id="lastPt">loading</span> • auto-refreshes every 60s •
-<a href="/api/metrics" style="color:#58a6ff">raw CSV</a>
+<a href="https://galley-temps.gaspartech.com/api/metrics" style="color:#58a6ff">raw CSV</a>
 </p>
 
 <script>
@@ -96,7 +96,11 @@ function parseCSV(text) {
 function filter(d, r) {
     const now = new Date();
     const cut = {'1h': 3600,'6h': 21600,'24h': 86400,'all': Infinity}[r] || 3600;
-    return d.filter(row => (now - row.t) / 1000 < cut);
+    const maxAge = 30 * 86400; // 30 days in seconds
+    return d.filter(row => {
+        const age = (now - row.t) / 1000;
+        return age < cut && age < maxAge;
+    });
 }
 
 /* ── Charts ── */
@@ -114,7 +118,7 @@ function render(d) {
             ds('CPU °C', d.map(r=>r.cpuT), C.cpu),
             ds('GPU0 °C', d.map(r=>r.g0t), C.gpu0),
             ds('GPU1 °C', d.map(r=>r.g1t), C.gpu1),
-        ]}, options:{...OPTS, scales:{...OPTS.scales, y:{...OPTS.scales.y, max:100}}},
+        ]}, options:{...OPTS, scales:{...OPTS.scales, y:{...OPTS.scales.y, max:110}}},
     });
 
     if (charts.gpu) charts.gpu.destroy();
