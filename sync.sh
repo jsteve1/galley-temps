@@ -5,7 +5,8 @@ set -e
 # so source the canonical creds file. We then embed GH_TOKEN directly in the
 # remote URL for the push so git never consults the (stale) credential store
 # or the gh git-credential helper.
-source "${HOME}/.hermes/scripts/gh-creds.env" 2>/dev/null || true
+source "/home/gasparilla/.hermes/scripts/gh-creds.env" 2>/dev/null || source "${HOME}/.hermes/scripts/gh-creds.env" 2>/dev/null || true
+export GH_TOKEN_READ
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -38,7 +39,7 @@ git commit -m "update: sync telemetry data $(date -u "+%Y-%m-%d %H:%M UTC")"
 # Always restore the token-less URL afterwards, even if the push fails.
 cleanup() { git remote set-url origin "https://github.com/jsteve1/galley-temps.git" 2>/dev/null || true; }
 trap cleanup EXIT
-git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/jsteve1/galley-temps.git"
-git push origin main
+git remote set-url origin "https://x-access-token:${GH_TOKEN_READ}@github.com/jsteve1/galley-temps.git"
+git -c credential.helper= push origin main
 
 echo "Sync complete. Dashboard: https://jsteve1.github.io/galley-temps/"
