@@ -38,7 +38,7 @@ git commit -m "update: sync telemetry data $(date -u "+%Y-%m-%d %H:%M UTC")"
 # Always restore the token-less URL afterwards, even if the push fails.
 cleanup() { git remote set-url origin "https://github.com/jsteve1/galley-temps.git" 2>/dev/null || true; }
 trap cleanup EXIT
-git remote set-url origin "https://x-access-token:${GH_TOKEN_WRITE}@github.com/jsteve1/galley-temps.git"
+git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/jsteve1/galley-temps.git"
 git push origin main
 
 echo "Sync complete. Dashboard: https://jsteve1.github.io/galley-temps/"
