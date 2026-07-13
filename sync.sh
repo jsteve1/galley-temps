@@ -40,6 +40,6 @@ git commit -m "update: sync telemetry data $(date -u "+%Y-%m-%d %H:%M UTC")"
 cleanup() { git remote set-url origin "https://github.com/jsteve1/galley-temps.git" 2>/dev/null || true; }
 trap cleanup EXIT
 git remote set-url origin "https://x-access-token:${GH_TOKEN_READ}@github.com/jsteve1/galley-temps.git"
-git -c credential.helper= push origin main
+git -c credential.helper= -c credential.https://github.com.helper= -c credential.https://gist.github.com.helper= push origin main
 
 echo "Sync complete. Dashboard: https://jsteve1.github.io/galley-temps/"
