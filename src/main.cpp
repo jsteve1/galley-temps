@@ -8,6 +8,10 @@
 #include <sstream>
 #include <iomanip>
 #include <ctime>
+#include <cstdio>
+#include <cinttypes>
+#include <algorithm>
+#include <mutex>
 #include <sys/statvfs.h>
 
 namespace fs = std::filesystem;
@@ -176,6 +180,73 @@ void append_csv(const std::string& line) {
     f << line << "\n";
 }
 
+// ── Retention: cap the log at MAX_RETENTION_SECS of history ───────────────
+// The dashboard and the GH Pages mirror both fetch the whole CSV on every
+// 60s refresh. Once the file had grown to ~330k rows / ~20MB, that download
+// was the bottleneck behind the "not posting live data" complaint. Truncate
+// to the newest ~7 days, keep a valid header, keep exactly one trailing
+// newline, and replace the file atomically so the logger never appends to a
+// half-written file. Only rows with a parseable ISO-8601 timestamp are
+// compared; anything else (junk, the header, unparseable lines) is dropped.
+
+static const int64_t MAX_RETENTION_SECS = 7 * 24 * 3600;
+static std::mutex g_truncate_mu;
+
+static int64_t parse_ts_leading(const std::string& s) {
+    int Y = 0, M = 0, D = 0, h = 0, m = 0, ss = 0;
+    if (sscanf(s.c_str(), "%d-%d-%dT%d:%d:%d", &Y, &M, &D, &h, &m, &ss) < 6)
+        return -1;
+    struct tm t{};
+    t.tm_year = Y - 1900; t.tm_mon = M - 1; t.tm_mday = D;
+    t.tm_hour = h; t.tm_min = m; t.tm_sec = ss; t.tm_isdst = -1;
+    time_t v = mktime(&t);
+    return (v < 0) ? -1 : (int64_t)v;
+}
+
+static bool truncate_retention_locked() {
+    std::lock_guard<std::mutex> lock(g_truncate_mu);
+    std::ifstream in(LOG_FILE, std::ios::binary);
+    if (!in.is_open()) return false;
+
+    std::string out_path = LOG_FILE + ".tmp";
+    std::ofstream out(out_path, std::ios::binary);
+    if (!out.is_open()) return false;
+
+    int64_t now = (int64_t)time(nullptr);
+    int64_t cutoff = now - MAX_RETENTION_SECS;
+
+    std::string line;
+    bool keep_header = true;
+    int kept_rows = 0;
+    bool ever_written = false;
+
+    while (std::getline(in, line)) {
+        if (keep_header && line.rfind("timestamp,", 0) == 0) {
+            out << line << "\n";
+            keep_header = false;
+            ever_written = true;
+            continue;
+        }
+        int64_t ts = parse_ts_leading(line);
+        if (ts >= cutoff) {
+            if (keep_header) { out << "timestamp,cpu_usage,cpu_temp,mem_pct,disk_pct,uptime_h,gpu0_util,gpu0_temp,gpu1_util,gpu1_temp\n"; keep_header = false; }
+            out << line << "\n";
+            kept_rows++;
+            ever_written = true;
+        }
+    }
+    if (!ever_written) {
+        out << "timestamp,cpu_usage,cpu_temp,mem_pct,disk_pct,uptime_h,gpu0_util,gpu0_temp,gpu1_util,gpu1_temp\n";
+    }
+    out.flush();
+    in.close();
+    if (out.fail()) { out.close(); fs::remove(out_path); return false; }
+    out.close();
+    int rc = ::rename(out_path.c_str(), LOG_FILE.c_str());
+    if (rc != 0) { fs::remove(out_path); return false; }
+    return true;
+}
+
 // ── Global state ────────────────────────────────────────────────
 static int64_t g_prev_total = 0;
 static int64_t g_prev_idle = 0;
@@ -230,8 +301,12 @@ int main() {
     // ── Crow HTTP server ───────────────────────────────
     crow::Crow app;
 
-    // Serve raw CSV log
+    // Serve raw CSV log — automatically truncated to ~1 week of history on
+    // every hit, so clients never download more than ~7 days of rows (~1-2MB
+    // at the current 30s sample rate) instead of the ~330k-row 20MB file we
+    // used to serve.
     CROW_ROUTE(app, "/api/metrics")([]() {
+        truncate_retention_locked();
         std::ifstream f(LOG_FILE);
         if (!f.is_open()) return std::string("[]");
         std::stringstream ss;
