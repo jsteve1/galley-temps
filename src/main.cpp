@@ -302,16 +302,29 @@ int main() {
     crow::Crow app;
 
     // Serve raw CSV log — automatically truncated to ~1 week of history on
-    // every hit, so clients never download more than ~7 days of rows (~1-2MB
-    // at the current 30s sample rate) instead of the ~330k-row 20MB file we
-    // used to serve.
-    CROW_ROUTE(app, "/api/metrics")([]() {
+    // every hit. CORS headers (Access-Control-Allow-Origin: *) are REQUIRED:
+    // the dashboard lives on jsteve1.github.io and fetches this endpoint
+    // cross-origin; without the header the browser blocks the fetch and the
+    // dashboard renders only an empty shell (the "not posting live data" bug).
+    CROW_ROUTE(app, "/api/metrics")([](const crow::request& req) {
         truncate_retention_locked();
-        std::ifstream f(LOG_FILE);
-        if (!f.is_open()) return std::string("[]");
-        std::stringstream ss;
-        ss << f.rdbuf();
-        return ss.str();
+        std::string body;
+        {
+            std::ifstream f(LOG_FILE);
+            if (f.is_open()) {
+                std::stringstream ss;
+                ss << f.rdbuf();
+                body = ss.str();
+            }
+        }
+        if (body.empty()) body = "[]";
+        auto res = crow::response(200, body);
+        res.add_header("Access-Control-Allow-Origin", "*");
+        res.add_header("Cache-Control", "no-store");
+        res.add_header("Access-Control-Allow-Methods", "GET, OPTIONS");
+        res.add_header("Access-Control-Allow-Headers", "*");
+        res.add_header("Content-Type", "text/csv; charset=utf-8");
+        return res;
     });
 
     // Live snapshot
