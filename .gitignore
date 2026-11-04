@@ -3,3 +3,8 @@ data/*.log
 .tunnel
 vendor/
 start.sh
+
+# Telemetry is served live by the server (/api/metrics); it is not committed.
+data/*.csv
+data/*.log
+docs/data/
